@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Vote</title>
+		<link
+			rel="stylesheet"
+			href="bootstrap.min.css"
+			integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T"
+			crossorigin="anonymous"
+		/>
+		<style>
+			#candidates {
+				display: flex;
+				justify-content: space-evenly;
+			}
+
+			#candidates > div {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 10px;
+			}
+			.error {
+				position: fixed;
+				right: 0;
+				top: 0;
+				padding: 10px;
+				display: flex;
+				flex-direction: column;
+				background-color: white;
+				z-index: 10;
+			}
+		</style>
+	</head>
+
+	<body>
+		<section class="error list-group"></section>
+		<section class="container mt-3">
+			<h1 id="greeting" class="h4">Hello Michael</h1>
+		</section>
+		<section class="container">
+			<p class="h3">Vote your favourite artist</p>
+			<div id="candidates" class="py-5"></div>
+		</section>
+
+		<section class="container">
+			<div id="logs" class="list-group mt-3"></div>
+		</section>
+		<script>
+			const name = localStorage.getItem("username")
+			if (!name) {
+				window.location.href = "/"
+			}
+
+			// localStorage.clear()
+			const ip = "192.168.154.95"
+
+			let candidates = []
+			let votes = {}
+			let candidateNodes = new Map()
+			let ws
+
+			document.querySelector("#greeting").textContent = `Hello ${name.toUpperCase()}`
+			const candidatesContainer = document.querySelector("#candidates")
+
+			const errorContainer = document.querySelector(".error")
+			const logs = document.querySelector("#logs")
+
+			// connects to the backend through a web socket
+			function connectToServer() {
+				ws = new WebSocket(`ws://${ip ?? "localhost"}:3000`)
+			}
+
+			function setupListeners() {
+				ws.onmessage = (message) => {
+					message = JSON.parse(message.data)
+					switch (message.type) {
+						case "stat":
+							displayStat(message)
+							break
+						case "new_vote":
+							const { voter, candidate } = message
+							voteUpdate(voter, candidate)
+					}
+				}
+			}
+
+			// display vote stat
+			function displayStat(message) {
+				for (const candidate of message.candidates) {
+					const candidateNode = addCandidate(candidate, message.votes[candidate]?.length ?? 0)
+					candidateNodes.set(candidate, candidateNode)
+					candidates.push(candidate)
+					votes[candidate] = message.votes[candidate] ?? []
+				}
+			}
+
+			// upadates the vote state when a new vote is casted
+			function voteUpdate(voter, candidate) {
+				votes[candidate].push(voter)
+				candidateNodes.get(candidate).querySelector("span").textContent = votes[candidate].length
+				logVote(voter, candidate)
+			}
+
+			function logVote(voter, candidate) {
+				const logInfo = document.createElement("p")
+				logInfo.textContent = `${voter} voted ${candidate}`
+				logInfo.classList.add("list-group-item")
+				logs.appendChild(logInfo)
+			}
+
+			function vote(candidate) {
+				const voted = localStorage.getItem("voted")
+				if (voted) {
+					alertError("you already voted")
+					return
+				}
+				ws.send(
+					JSON.stringify({
+						type: "add_vote",
+						voter: name,
+						candidate,
+					})
+				)
+				localStorage.setItem("voted", true)
+			}
+
+			function addCandidate(candidate, votes) {
+				const candidateDiv = document.createElement("div")
+				const candidateName = document.createElement("h1")
+				candidateName.classList.add("h4")
+				candidateName.textContent = candidate
+				const voteCount = document.createElement("span")
+				voteCount.classList.add("display-1")
+				voteCount.textContent = votes
+				const voteButton = document.createElement("button")
+				voteButton.textContent = "vote"
+				voteButton.classList.add("btn", "btn-danger", "px-4")
+				voteButton.addEventListener("click", () => {
+					vote(candidate)
+				})
+				candidateDiv.appendChild(candidateName)
+				candidateDiv.appendChild(voteCount)
+				candidateDiv.appendChild(voteButton)
+				candidatesContainer.appendChild(candidateDiv)
+				return candidateDiv
+			}
+
+			function alertError(message) {
+				const error = document.createElement("span")
+				error.textContent = message
+				error.classList.add("list-group-item", "text-danger")
+				errorContainer.appendChild(error)
+				setTimeout(() => {
+					error.remove()
+				}, 2000)
+			}
+			connectToServer()
+			setupListeners()
+		</script>
+	</body>
+</html>
